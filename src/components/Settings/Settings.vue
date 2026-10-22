@@ -491,6 +491,13 @@ function handleClose() {
   emit('close')
 }
 
+function handleSettingsKeydown(event: KeyboardEvent) {
+  // 保留 Esc 给设置页现有的窗口级处理（如筛选表取消编辑）。
+  if (event.key === 'Escape')
+    return
+  event.stopPropagation()
+}
+
 function changeMenuItem(menuItem: MenuType) {
   cancelSearchNavigation()
   activatedMenuItem.value = menuItem
@@ -509,6 +516,9 @@ function changeMenuItem(menuItem: MenuType) {
       pos="fixed top-1/2 left-1/2" w="90%" h="90%"
       max-w-1000px max-h-900px transform="~ translate-x--1/2 translate-y--1/2 gpu"
       flex="~ justify-between items-center"
+      @keydown="handleSettingsKeydown"
+      @keyup.stop
+      @keypress.stop
     >
       <aside
         class="settings-primary-navigation group"
