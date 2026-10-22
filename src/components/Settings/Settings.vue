@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { USAGE_GUIDE_URL } from '~/constants/usageGuide'
 import { settings } from '~/logic'
+import { findLeafActiveElement } from '~/utils/element'
 import { createTransformer } from '~/utils/transformer'
 
 import { createPinnedChannelHistory, pinnedChannelHistoryKey } from './composables/usePinnedChannelHistory'
@@ -108,6 +109,93 @@ const activatedMenuItem = ref<MenuType>(
     : MenuType.General,
 )
 const settingsWindow = ref<HTMLDivElement>()
+let previouslyFocusedElement: HTMLElement | null = null
+const settingsFocusableSelector = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+  '[contenteditable="true"]',
+].join(', ')
+
+function getSettingsFocusableElements() {
+  const root = settingsWindow.value
+  if (!root)
+    return []
+
+  return Array.from(root.querySelectorAll<HTMLElement>(settingsFocusableSelector))
+    .filter((element) => {
+      if (element.getAttribute('tabindex') === '-1'
+        || element.getAttribute('aria-hidden') === 'true'
+        || element.closest('[inert]')) {
+        return false
+      }
+
+      const style = window.getComputedStyle(element)
+      return style.display !== 'none'
+        && style.visibility !== 'hidden'
+        && element.getClientRects().length > 0
+    })
+}
+
+function focusSettingsWindow() {
+  void nextTick(() => {
+    settingsWindow.value?.focus({ preventScroll: true })
+  })
+}
+
+function activateSettingsFocus() {
+  const activeElement = findLeafActiveElement(document)
+  if (activeElement instanceof HTMLElement
+    && activeElement !== document.body
+    && !settingsWindow.value?.contains(activeElement)) {
+    previouslyFocusedElement = activeElement
+  }
+  focusSettingsWindow()
+}
+
+function restoreSettingsFocus() {
+  if (previouslyFocusedElement?.isConnected)
+    previouslyFocusedElement.focus({ preventScroll: true })
+  previouslyFocusedElement = null
+}
+
+function trapSettingsFocus(event: KeyboardEvent) {
+  const root = settingsWindow.value
+  if (!root)
+    return
+
+  const focusableElements = getSettingsFocusableElements()
+  if (focusableElements.length === 0) {
+    event.preventDefault()
+    root.focus({ preventScroll: true })
+    return
+  }
+
+  const activeElement = findLeafActiveElement(document)
+  const firstElement = focusableElements[0]
+  const lastElement = focusableElements[focusableElements.length - 1]
+
+  if (event.shiftKey) {
+    if (activeElement === firstElement || activeElement === root) {
+      event.preventDefault()
+      lastElement.focus({ preventScroll: true })
+    }
+    return
+  }
+
+  if (activeElement === root || activeElement === lastElement) {
+    event.preventDefault()
+    firstElement.focus({ preventScroll: true })
+  }
+}
+
+onMounted(activateSettingsFocus)
+onActivated(activateSettingsFocus)
+onDeactivated(restoreSettingsFocus)
+onBeforeUnmount(restoreSettingsFocus)
 const settingsSearchRef = ref<HTMLElement>()
 const searchInputRef = ref<HTMLInputElement>()
 const searchPopoverStyle = ref<CSSProperties>({})
@@ -492,6 +580,12 @@ function handleClose() {
 }
 
 function handleSettingsKeydown(event: KeyboardEvent) {
+  if (event.key === 'Tab') {
+    trapSettingsFocus(event)
+    event.stopPropagation()
+    return
+  }
+
   // 保留 Esc 给设置页现有的窗口级处理（如筛选表取消编辑）。
   if (event.key === 'Escape')
     return
@@ -513,6 +607,10 @@ function changeMenuItem(menuItem: MenuType) {
     <div
       id="settings-window"
       ref="settingsWindow"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="$t('settings.title')"
+      tabindex="-1"
       pos="fixed top-1/2 left-1/2" w="90%" h="90%"
       max-w-1000px max-h-900px transform="~ translate-x--1/2 translate-y--1/2 gpu"
       flex="~ justify-between items-center"
