@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from 'vue-toastification'
 
@@ -109,6 +109,7 @@ const configurableShortcutsGroups: ShortcutGroup[] = [
 ]
 
 // --- Reactive State ---
+const shortcutConfigRoot = ref<HTMLElement>()
 const editingShortcutId = ref<ConfigurableShortcutId | null>(null)
 const currentKeyCombo = ref('')
 
@@ -163,6 +164,15 @@ function startEditShortcut(id: ConfigurableShortcutId) {
   currentKeyCombo.value = '' // 重置当前按键组合
 }
 
+// 录制框被 v-if 移除后焦点会落到 body；取消/保存后把焦点交还给同一行的编辑按钮。
+function focusShortcutEditButton(id: ConfigurableShortcutId) {
+  void nextTick(() => {
+    shortcutConfigRoot.value
+      ?.querySelector<HTMLButtonElement>(`[data-shortcut-edit="${id}"]`)
+      ?.focus({ preventScroll: true })
+  })
+}
+
 function saveShortcutKey(id: ConfigurableShortcutId, newKey: string) {
   // 确保settings.value.shortcuts存在
   if (!settings.value.shortcuts) {
@@ -189,11 +199,16 @@ function saveShortcutKey(id: ConfigurableShortcutId, newKey: string) {
   catch (error) {
     console.error('Failed to re-register shortcuts:', error)
   }
+
+  focusShortcutEditButton(id)
 }
 
-function cancelEdit() {
+function cancelEdit(options: { restoreFocus?: boolean } = {}) {
+  const id = editingShortcutId.value
   editingShortcutId.value = null
   currentKeyCombo.value = '' // 重置当前按键组合
+  if (options.restoreFocus && id)
+    focusShortcutEditButton(id)
 }
 
 function handleKeyDown(event: KeyboardEvent, id: ConfigurableShortcutId) {
@@ -215,13 +230,13 @@ function handleKeyUp(event: KeyboardEvent, id: ConfigurableShortcutId) {
 
   // 如果按下的是 Escape 键，取消编辑
   if (event.key === 'Escape') {
-    cancelEdit()
+    cancelEdit({ restoreFocus: true })
     return
   }
 
   // 如果按下的是 Backspace 键，且没有其他按键，取消编辑
   if (event.key === 'Backspace' && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey) {
-    cancelEdit()
+    cancelEdit({ restoreFocus: true })
     return
   }
 
@@ -232,7 +247,7 @@ function handleKeyUp(event: KeyboardEvent, id: ConfigurableShortcutId) {
 
     if (conflictResult.hasConflict && conflictResult.conflictInfo) {
       toast.warning(t('settings.shortcuts.conflict', { name: conflictResult.conflictInfo.name }))
-      cancelEdit()
+      cancelEdit({ restoreFocus: true })
     }
     else {
       saveShortcutKey(id, keyCombo)
@@ -290,7 +305,7 @@ function undoResetAllShortcuts() {
 </script>
 
 <template>
-  <div>
+  <div ref="shortcutConfigRoot">
     <SettingsSectionHeading
       :title="t('settings.shortcuts.title')"
       :desc="t('settings.category_shortcuts_desc')"
@@ -339,7 +354,7 @@ function undoResetAllShortcuts() {
                   tabindex="0"
                   @keydown="handleKeyDown($event, shortcutDef.id)"
                   @keyup="handleKeyUp($event, shortcutDef.id)"
-                  @blur="cancelEdit"
+                  @blur="cancelEdit()"
                 >
                   {{ currentKeyCombo ? formatShortcutKey(currentKeyCombo) : t('settings.shortcuts.press_keys') }}
                 </div>
@@ -351,6 +366,7 @@ function undoResetAllShortcuts() {
                 <div class="shortcut-actions flex gap-1">
                   <button
                     v-if="editingShortcutId !== shortcutDef.id"
+                    :data-shortcut-edit="shortcutDef.id"
                     class="edit-btn p-1 rounded hover:bg-$bew-fill-2"
                     :title="t('settings.shortcuts.item.edit_key')"
                     @click="startEditShortcut(shortcutDef.id)"
@@ -361,7 +377,7 @@ function undoResetAllShortcuts() {
                     v-if="editingShortcutId === shortcutDef.id"
                     class="cancel-btn p-1 rounded hover:bg-$bew-fill-2"
                     :title="t('settings.shortcuts.item.cancel_edit')"
-                    @click="cancelEdit"
+                    @click="cancelEdit({ restoreFocus: true })"
                   >
                     <i i-mingcute:close-line />
                   </button>
