@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { USAGE_GUIDE_URL } from '~/constants/usageGuide'
 import { settings } from '~/logic'
-import { findLeafActiveElement } from '~/utils/element'
+import { findLeafActiveElement, getFocusableElements } from '~/utils/element'
 import { createTransformer } from '~/utils/transformer'
 
 import { createPinnedChannelHistory, pinnedChannelHistoryKey } from './composables/usePinnedChannelHistory'
@@ -110,35 +110,11 @@ const activatedMenuItem = ref<MenuType>(
 )
 const settingsWindow = ref<HTMLDivElement>()
 const settingsRoot = ref<HTMLDivElement>()
+const settingsContentRef = ref<HTMLElement>()
 let previouslyFocusedElement: HTMLElement | null = null
-const settingsFocusableSelector = [
-  'a[href]',
-  'button:not([disabled])',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-  '[contenteditable="true"]',
-].join(', ')
 
 function getSettingsFocusableElements() {
-  const root = settingsWindow.value
-  if (!root)
-    return []
-
-  return Array.from(root.querySelectorAll<HTMLElement>(settingsFocusableSelector))
-    .filter((element) => {
-      if (element.getAttribute('tabindex') === '-1'
-        || element.getAttribute('aria-hidden') === 'true'
-        || element.closest('[inert]')) {
-        return false
-      }
-
-      const style = window.getComputedStyle(element)
-      return style.display !== 'none'
-        && style.visibility !== 'hidden'
-        && element.getClientRects().length > 0
-    })
+  return getFocusableElements(settingsWindow.value)
 }
 
 function focusSettingsRoot() {
@@ -265,6 +241,32 @@ useEventListener(window, 'resize', () => {
 })
 
 const scrollViewportRef = ref<HTMLElement>()
+
+// 从左侧导航按 Tab 进入右侧时，优先落到当前页面的二级侧栏，其次落到页面第一个控件。
+function focusSettingsPageEntry(attempt = 0) {
+  const viewport = scrollViewportRef.value
+  if (!viewport)
+    return
+
+  const activeCategoryButton = viewport.querySelector<HTMLElement>('.settings-category-button.active')
+  if (activeCategoryButton) {
+    activeCategoryButton.focus({ preventScroll: true })
+    return
+  }
+
+  const firstControl = getFocusableElements(viewport)[0]
+  if (firstControl) {
+    firstControl.focus()
+    return
+  }
+
+  if (attempt < 3) {
+    requestAnimationFrame(() => focusSettingsPageEntry(attempt + 1))
+    return
+  }
+
+  settingsContentRef.value?.focus({ preventScroll: true })
+}
 
 // 滚动时关闭搜索弹窗（保留搜索词）
 useEventListener(() => scrollViewportRef.value, 'scroll', () => {
@@ -624,6 +626,59 @@ function changeMenuItem(menuItem: MenuType) {
   cancelSearchNavigation()
   activatedMenuItem.value = menuItem
 }
+
+function focusPrimaryMenuItem(value: MenuType) {
+  void nextTick(() => {
+    settingsWindow.value
+      ?.querySelector<HTMLElement>(`[data-settings-menu="${value}"]`)
+      ?.focus({ preventScroll: true })
+  })
+}
+
+function handlePrimaryNavKeydown(event: KeyboardEvent) {
+  if (event.key === 'Tab') {
+    if (event.shiftKey)
+      return
+
+    event.preventDefault()
+    event.stopPropagation()
+    focusSettingsPageEntry()
+    return
+  }
+
+  const isNext = event.key === 'ArrowDown'
+  const isPrevious = event.key === 'ArrowUp'
+  const isFirst = event.key === 'Home'
+  const isLast = event.key === 'End'
+  const target = event.target
+  if ((!isNext && !isPrevious && !isFirst && !isLast)
+    || !(target instanceof Element)
+    || !target.closest('.settings-primary-navigation__item')) {
+    return
+  }
+
+  const currentIndex = settingsMenuItems.findIndex(item => item.value === activatedMenuItem.value)
+  if (currentIndex < 0)
+    return
+
+  const lastIndex = settingsMenuItems.length - 1
+  const nextIndex = isFirst
+    ? 0
+    : isLast
+      ? lastIndex
+      : isNext
+        ? (currentIndex + 1) % settingsMenuItems.length
+        : (currentIndex - 1 + settingsMenuItems.length) % settingsMenuItems.length
+  const nextItem = settingsMenuItems[nextIndex]
+  if (!nextItem)
+    return
+
+  event.preventDefault()
+  event.stopPropagation()
+
+  changeMenuItem(nextItem.value)
+  focusPrimaryMenuItem(nextItem.value)
+}
 </script>
 
 <template>
@@ -663,6 +718,7 @@ function changeMenuItem(menuItem: MenuType) {
           relative
           bg="$bew-content-alt group-hover:$bew-elevated dark:$bew-elevated dark-group-hover:$bew-elevated"
           overflow-hidden antialiased
+          @keydown="handlePrimaryNavKeydown"
         >
           <!-- frosted glass background -->
           <!-- https://github.com/BewlyBewly/BewlyBewly/issues/1162 -->
@@ -684,6 +740,8 @@ function changeMenuItem(menuItem: MenuType) {
             <button
               type="button"
               class="settings-primary-navigation__item"
+              :data-settings-menu="menuItem.value"
+              :tabindex="menuItem.value === activatedMenuItem ? 0 : -1"
               cursor-pointer
               :class="{ 'menu-item-activated': menuItem.value === activatedMenuItem }"
               :aria-current="menuItem.value === activatedMenuItem ? 'page' : undefined"
@@ -826,7 +884,12 @@ function changeMenuItem(menuItem: MenuType) {
           style="padding-top: 92px;"
         >
           <!-- 底部留白高于右下角帮助按钮（16px 边距 + 32px），让末行内容可滚到按钮上方 -->
-          <main w-full min-h="[calc(100%-92px)]" p="x-12 b-20">
+          <main
+            ref="settingsContentRef"
+            tabindex="-1"
+            outline-none
+            w-full min-h="[calc(100%-92px)]" p="x-12 b-20"
+          >
             <!-- <div h-80px mt--8 /> -->
 
             <Transition name="page-fade">
@@ -967,7 +1030,7 @@ function changeMenuItem(menuItem: MenuType) {
   }
 }
 
-.settings-primary-navigation:hover {
+.settings-primary-navigation:is(:hover, :focus-within) {
   .settings-primary-navigation__list {
     width: calc(
       var(--settings-primary-nav-expanded-item-width) + var(--settings-primary-nav-inset) +
@@ -975,6 +1038,7 @@ function changeMenuItem(menuItem: MenuType) {
     );
     border-radius: var(--bew-radius-2xl);
     transform: scale(1.05);
+    background-color: var(--bew-elevated);
   }
 }
 
