@@ -2,6 +2,8 @@
 import type { Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { getFocusableElements } from '~/utils/element'
+
 import SettingsSectionHeading from './SettingsSectionHeading.vue'
 
 export interface CategoryPage {
@@ -72,11 +74,82 @@ function handlePageMouseDown(event: MouseEvent) {
   if (event.currentTarget instanceof HTMLElement)
     event.currentTarget.focus({ preventScroll: true })
 }
+
+const navRef = ref<HTMLElement>()
+const contentRef = ref<HTMLElement>()
+
+function focusCurrentPageContent() {
+  const content = contentRef.value
+  if (!content)
+    return
+
+  const firstControl = getFocusableElements(content)[0]
+  if (firstControl) {
+    firstControl.focus({ preventScroll: true })
+    return
+  }
+
+  content.focus({ preventScroll: true })
+}
+
+function handleCategoryNavKeydown(event: KeyboardEvent) {
+  if (event.key === 'Tab') {
+    if (event.shiftKey)
+      return
+
+    event.preventDefault()
+    event.stopPropagation()
+    focusCurrentPageContent()
+    return
+  }
+
+  const isNext = event.key === 'ArrowDown'
+  const isPrevious = event.key === 'ArrowUp'
+  const isFirst = event.key === 'Home'
+  const isLast = event.key === 'End'
+  const target = event.target
+  if ((!isNext && !isPrevious && !isFirst && !isLast)
+    || !(target instanceof Element)
+    || !target.closest('.settings-category-button')) {
+    return
+  }
+
+  const currentIndex = props.pages.findIndex(page => page.value === activePage.value)
+  if (currentIndex < 0)
+    return
+
+  const lastIndex = props.pages.length - 1
+  const nextIndex = isFirst
+    ? 0
+    : isLast
+      ? lastIndex
+      : isNext
+        ? (currentIndex + 1) % props.pages.length
+        : (currentIndex - 1 + props.pages.length) % props.pages.length
+  const nextPage = props.pages[nextIndex]
+  if (!nextPage)
+    return
+
+  event.preventDefault()
+  event.stopPropagation()
+
+  selectPage(nextPage.value)
+  void nextTick(() => {
+    navRef.value
+      ?.querySelector<HTMLButtonElement>(`[data-category-page="${nextPage.value}"]`)
+      ?.focus({ preventScroll: true })
+  })
+}
 </script>
 
 <template>
   <div class="settings-category-layout">
-    <nav class="settings-category-nav" :aria-label="$t('settings.category_navigation')">
+    <nav
+      ref="navRef"
+      class="settings-category-nav"
+      :aria-label="$t('settings.category_navigation')"
+      @keydown="handleCategoryNavKeydown"
+    >
       <div
         v-for="(group, groupIndex) in pageGroups"
         :key="group.key ?? `ungrouped-${groupIndex}`"
@@ -92,6 +165,8 @@ function handlePageMouseDown(event: MouseEvent) {
           type="button"
           class="settings-category-button"
           :class="{ active: activePage === page.value }"
+          :data-category-page="page.value"
+          :tabindex="activePage === page.value ? 0 : -1"
           @mousedown="handlePageMouseDown"
           @click="selectPage(page.value)"
         >
@@ -104,7 +179,7 @@ function handlePageMouseDown(event: MouseEvent) {
       </div>
     </nav>
 
-    <section v-if="currentPage" class="settings-category-content">
+    <section v-if="currentPage" ref="contentRef" class="settings-category-content" tabindex="-1">
       <SettingsSectionHeading
         :title="$t(currentPage.titleKey)"
         :desc="currentPage.descriptionKey ? $t(currentPage.descriptionKey) : undefined"
@@ -180,6 +255,11 @@ function handlePageMouseDown(event: MouseEvent) {
     background: var(--bew-theme-color-auto);
   }
 
+  &:focus-visible {
+    outline: 2px solid var(--bew-theme-color-40);
+    outline-offset: -2px;
+  }
+
   > span:last-child {
     min-width: 0;
     line-height: 1.3;
@@ -195,6 +275,10 @@ function handlePageMouseDown(event: MouseEvent) {
 
 .settings-category-content {
   min-width: 0;
+
+  &:focus {
+    outline: none;
+  }
 }
 
 @media (max-width: 760px) {
