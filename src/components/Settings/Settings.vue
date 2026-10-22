@@ -184,10 +184,26 @@ function handleSearchBlur() {
 }
 
 function handleSearchEscape(event: KeyboardEvent) {
-  if (!searchQuery.value)
-    return
   event.stopPropagation()
-  searchQuery.value = ''
+  if (searchQuery.value) {
+    searchQuery.value = ''
+    return
+  }
+  exitSettingsSearch()
+}
+
+function exitSettingsSearch() {
+  searchInputRef.value?.blur()
+  focusSettingsPageEntry()
+}
+
+function handleSearchTab(event: KeyboardEvent) {
+  if (event.shiftKey)
+    return
+
+  event.preventDefault()
+  event.stopPropagation()
+  exitSettingsSearch()
 }
 
 function handleSearchFocus() {
@@ -219,12 +235,22 @@ function updateSearchPopoverBounds() {
   }
 }
 
+function focusSettingsSearchInput(selectContent = false) {
+  const input = searchInputRef.value
+  if (!input)
+    return
+
+  input.focus({ preventScroll: true })
+  if (selectContent)
+    input.select()
+  nextTick(updateSearchPopoverBounds)
+}
+
 function focusSettingsSearch(event: MouseEvent) {
   if (event.target instanceof Element && event.target.closest('.settings-search-results'))
     return
 
-  searchInputRef.value?.focus({ preventScroll: true })
-  nextTick(updateSearchPopoverBounds)
+  focusSettingsSearchInput()
 }
 
 useEventListener(window, 'resize', () => {
@@ -433,7 +459,7 @@ function activateSearchResult(event: KeyboardEvent) {
   const entry = searchResults.value[activeSearchResultIndex.value] ?? searchResults.value[0]
   if (entry) {
     event.preventDefault()
-    navigateToSearchResult(entry)
+    navigateToSearchResult(entry, { focusTarget: true })
   }
 }
 
@@ -481,14 +507,18 @@ function highlightSearchTarget(target: HTMLElement) {
   searchTargetHighlightTimer = window.setTimeout(clearSearchTargetHighlight, 2400)
 }
 
-function scrollToSearchTarget(expectedTitle: string | undefined, navigationId: number, attempts = 0) {
+function focusSearchTarget(target: HTMLElement) {
+  getFocusableElements(target)[0]?.focus({ preventScroll: true })
+}
+
+function scrollToSearchTarget(expectedTitle: string | undefined, navigationId: number, attempts = 0, focusTarget = false) {
   if (!expectedTitle || navigationId !== searchNavigationId || attempts > 30)
     return
 
   const retry = () => {
     searchTargetRetryTimer = window.setTimeout(() => {
       searchTargetRetryTimer = undefined
-      scrollToSearchTarget(expectedTitle, navigationId, attempts + 1)
+      scrollToSearchTarget(expectedTitle, navigationId, attempts + 1, focusTarget)
     }, 100)
   }
   const viewport = scrollViewportRef.value
@@ -539,11 +569,13 @@ function scrollToSearchTarget(expectedTitle: string | undefined, navigationId: n
         behavior: 'smooth',
       })
       highlightSearchTarget(target)
+      if (focusTarget)
+        focusSearchTarget(target)
     })
   })
 }
 
-function navigateToSearchResult(entry: SettingsSearchEntry) {
+function navigateToSearchResult(entry: SettingsSearchEntry, options: { focusTarget?: boolean } = {}) {
   cancelSearchNavigation()
   const navigationId = searchNavigationId
   entry.storageValues?.forEach(({ key, value }) => sessionStorage.setItem(key, value))
@@ -555,7 +587,7 @@ function navigateToSearchResult(entry: SettingsSearchEntry) {
   const targetTitle = entry.targetTitleKey
     ? t(entry.targetTitleKey)
     : entry.targetTitle ?? getSearchEntryTitle(entry)
-  nextTick(() => scrollToSearchTarget(targetTitle, navigationId))
+  nextTick(() => scrollToSearchTarget(targetTitle, navigationId, 0, options.focusTarget))
 }
 
 const secondaryPageStorageKeys: Partial<Record<MenuType, string>> = {
@@ -596,6 +628,12 @@ function hasOpenSettingsDialog() {
   )
 }
 
+function isEditableKeyboardTarget(event: KeyboardEvent) {
+  const target = event.composedPath()[0]
+  return target instanceof HTMLElement
+    && Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
+}
+
 function handleSettingsKeydown(event: KeyboardEvent) {
   if (event.key === 'Tab') {
     trapSettingsFocus(event)
@@ -616,6 +654,15 @@ function handleSettingsKeydown(event: KeyboardEvent) {
 
     handleClose()
     event.stopPropagation()
+    return
+  }
+
+  // “/”聚焦设置搜索：不在输入类控件内、没有修饰键、没有弹窗时生效。
+  if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey
+    && !event.isComposing && !isEditableKeyboardTarget(event) && !hasOpenSettingsDialog()) {
+    event.preventDefault()
+    event.stopPropagation()
+    focusSettingsSearchInput(true)
     return
   }
 
@@ -839,9 +886,11 @@ function handlePrimaryNavKeydown(event: KeyboardEvent) {
               role="combobox"
               aria-autocomplete="list"
               aria-controls="settings-search-results"
-              :aria-expanded="Boolean(searchQuery)"
+              :aria-expanded="Boolean(searchQuery) && isSearchFocused"
+              aria-keyshortcuts="/"
               :aria-activedescendant="activeSearchResultIndex >= 0 ? `settings-search-result-${activeSearchResultIndex}` : undefined"
               @keydown.esc="handleSearchEscape"
+              @keydown.tab="handleSearchTab"
               @keydown.down="moveSearchResultSelection($event, 1)"
               @keydown.up="moveSearchResultSelection($event, -1)"
               @keydown.enter="activateSearchResult"
@@ -947,10 +996,11 @@ function handlePrimaryNavKeydown(event: KeyboardEvent) {
             :key="`${entry.menu}-${entry.secondaryTitleKey ?? ''}-${entry.titleKey ?? entry.title}-${index}`"
             type="button"
             role="option"
+            tabindex="-1"
             :aria-selected="index === activeSearchResultIndex"
             :class="{ active: index === activeSearchResultIndex }"
             @mouseenter="activeSearchResultIndex = index"
-            @click="navigateToSearchResult(entry)"
+            @click="navigateToSearchResult(entry, { focusTarget: true })"
           >
             <strong>{{ getSearchEntryTitle(entry) }}</strong>
             <span>{{ getSearchEntryLocation(entry) }}</span>
