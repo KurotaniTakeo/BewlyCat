@@ -109,6 +109,7 @@ const activatedMenuItem = ref<MenuType>(
     : MenuType.General,
 )
 const settingsWindow = ref<HTMLDivElement>()
+const settingsRoot = ref<HTMLDivElement>()
 let previouslyFocusedElement: HTMLElement | null = null
 const settingsFocusableSelector = [
   'a[href]',
@@ -140,9 +141,9 @@ function getSettingsFocusableElements() {
     })
 }
 
-function focusSettingsWindow() {
+function focusSettingsRoot() {
   void nextTick(() => {
-    settingsWindow.value?.focus({ preventScroll: true })
+    settingsRoot.value?.focus({ preventScroll: true })
   })
 }
 
@@ -150,10 +151,10 @@ function activateSettingsFocus() {
   const activeElement = findLeafActiveElement(document)
   if (activeElement instanceof HTMLElement
     && activeElement !== document.body
-    && !settingsWindow.value?.contains(activeElement)) {
+    && !settingsRoot.value?.contains(activeElement)) {
     previouslyFocusedElement = activeElement
   }
-  focusSettingsWindow()
+  focusSettingsRoot()
 }
 
 function restoreSettingsFocus() {
@@ -163,7 +164,7 @@ function restoreSettingsFocus() {
 }
 
 function trapSettingsFocus(event: KeyboardEvent) {
-  const root = settingsWindow.value
+  const root = settingsRoot.value
   if (!root)
     return
 
@@ -599,7 +600,18 @@ function changeMenuItem(menuItem: MenuType) {
 </script>
 
 <template>
-  <div class="fixed w-full h-full top-0 left-0" data-layout-edit-control>
+  <div
+    ref="settingsRoot"
+    class="fixed w-full h-full top-0 left-0 outline-none"
+    data-layout-edit-control
+    role="dialog"
+    aria-modal="true"
+    :aria-label="$t('settings.title')"
+    tabindex="-1"
+    @keydown="handleSettingsKeydown"
+    @keyup.stop
+    @keypress.stop
+  >
     <div
       class="fixed w-full h-full top-0 left-0"
       @click="handleClose"
@@ -607,16 +619,9 @@ function changeMenuItem(menuItem: MenuType) {
     <div
       id="settings-window"
       ref="settingsWindow"
-      role="dialog"
-      aria-modal="true"
-      :aria-label="$t('settings.title')"
-      tabindex="-1"
       pos="fixed top-1/2 left-1/2" w="90%" h="90%"
       max-w-1000px max-h-900px transform="~ translate-x--1/2 translate-y--1/2 gpu"
       flex="~ justify-between items-center"
-      @keydown="handleSettingsKeydown"
-      @keyup.stop
-      @keypress.stop
     >
       <aside
         class="settings-primary-navigation group"
