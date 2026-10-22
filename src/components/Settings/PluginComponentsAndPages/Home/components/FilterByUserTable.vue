@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import { onKeyStroke } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useToast } from 'vue-toastification'
 
@@ -71,14 +70,17 @@ function handleDeleteFilter(index: number) {
   settings.value.filterByUser.splice(index, 1)
 }
 
-onKeyStroke('Escape', (e: KeyboardEvent) => {
-  e.preventDefault()
+function handleFilterEscape(event: KeyboardEvent) {
+  if (editingIndex.value === -1)
+    return
+  event.preventDefault()
+  event.stopPropagation()
   editingIndex.value = -1
-})
+}
 </script>
 
 <template>
-  <div>
+  <div @keydown.esc="handleFilterEscape">
     <div flex="~ gap-1" bg="$bew-fill-1" p-2 mb-2 rounded="$bew-radius">
       <Input
         v-model="addingFilter.keyword"

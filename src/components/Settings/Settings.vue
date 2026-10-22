@@ -207,6 +207,13 @@ function handleSearchBlur() {
   isSearchFocused.value = false
 }
 
+function handleSearchEscape(event: KeyboardEvent) {
+  if (!searchQuery.value)
+    return
+  event.stopPropagation()
+  searchQuery.value = ''
+}
+
 function handleSearchFocus() {
   isSearchFocused.value = true
 }
@@ -580,6 +587,13 @@ function handleClose() {
   emit('close')
 }
 
+function hasOpenSettingsDialog() {
+  return Boolean(
+    settingsRoot.value?.querySelector('.dialog, .bew-confirm-dialog')
+    || mainAppRef.value?.querySelector('.dialog, .bew-confirm-dialog'),
+  )
+}
+
 function handleSettingsKeydown(event: KeyboardEvent) {
   if (event.key === 'Tab') {
     trapSettingsFocus(event)
@@ -587,9 +601,22 @@ function handleSettingsKeydown(event: KeyboardEvent) {
     return
   }
 
-  // 保留 Esc 给设置页现有的窗口级处理（如筛选表取消编辑）。
-  if (event.key === 'Escape')
+  if (event.key === 'Escape') {
+    // 快捷键录制中按 Esc 只取消录制，由编辑框自身处理。
+    if (settingsWindow.value?.querySelector('.shortcut-edit-box')) {
+      event.stopPropagation()
+      return
+    }
+
+    // 弹窗优先关闭，设置页保持打开。
+    if (hasOpenSettingsDialog())
+      return
+
+    handleClose()
+    event.stopPropagation()
     return
+  }
+
   event.stopPropagation()
 }
 
@@ -756,7 +783,7 @@ function changeMenuItem(menuItem: MenuType) {
               aria-controls="settings-search-results"
               :aria-expanded="Boolean(searchQuery)"
               :aria-activedescendant="activeSearchResultIndex >= 0 ? `settings-search-result-${activeSearchResultIndex}` : undefined"
-              @keydown.esc="searchQuery = ''"
+              @keydown.esc="handleSearchEscape"
               @keydown.down="moveSearchResultSelection($event, 1)"
               @keydown.up="moveSearchResultSelection($event, -1)"
               @keydown.enter="activateSearchResult"
