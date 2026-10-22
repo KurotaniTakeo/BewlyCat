@@ -7,7 +7,7 @@ import Radio from '~/components/Radio.vue'
 import Select from '~/components/Select.vue'
 import { VideoPageTopBarConfig } from '~/enums/appEnums'
 import { settings } from '~/logic'
-import type { TopBarStyle } from '~/logic/storage'
+import type { TopBarLogoStyle, TopBarStyle } from '~/logic/storage'
 import type { NotificationBadgeSettings } from '~/utils/notificationBadge'
 
 import SettingsItem from '../../components/SettingsItem.vue'
@@ -159,6 +159,41 @@ function setComponentBadgeType(componentKey: string, badgeValue: BadgeType) {
     config.badgeType = badgeValue
 }
 
+const logoStyleGroupRef = ref<HTMLElement>()
+const logoStyleOptions: TopBarLogoStyle[] = ['icon', 'brand']
+
+function handleLogoStyleKeydown(event: KeyboardEvent) {
+  const isNext = event.key === 'ArrowDown' || event.key === 'ArrowRight'
+  const isPrevious = event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+  const isFirst = event.key === 'Home'
+  const isLast = event.key === 'End'
+  if (!isNext && !isPrevious && !isFirst && !isLast)
+    return
+
+  event.preventDefault()
+  event.stopPropagation()
+
+  const currentIndex = logoStyleOptions.indexOf(settings.value.topBarLogoStyle)
+  const lastIndex = logoStyleOptions.length - 1
+  const nextIndex = isFirst
+    ? 0
+    : isLast
+      ? lastIndex
+      : isNext
+        ? currentIndex < 0 ? 0 : (currentIndex + 1) % logoStyleOptions.length
+        : currentIndex < 0 ? lastIndex : (currentIndex - 1 + logoStyleOptions.length) % logoStyleOptions.length
+  const nextStyle = logoStyleOptions[nextIndex]
+  if (!nextStyle)
+    return
+
+  settings.value.topBarLogoStyle = nextStyle
+  void nextTick(() => {
+    logoStyleGroupRef.value
+      ?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[nextIndex]
+      ?.focus({ preventScroll: true })
+  })
+}
+
 ensureTopBarComponentsConfig()
 watch(topBarComponents, ensureTopBarComponentsConfig, { immediate: true })
 </script>
@@ -232,14 +267,17 @@ watch(topBarComponents, ensureTopBarComponentsConfig, { immediate: true })
         right-width="auto"
       >
         <div
+          ref="logoStyleGroupRef"
           class="logo-style-picker bew-segment-control bew-segment-control--surface bew-segment-control--static"
           role="radiogroup"
           :aria-label="$t('settings.top_bar_logo_style')"
+          @keydown="handleLogoStyleKeydown"
         >
           <button
             type="button"
             class="bew-segment-control__item bew-segment-control__item--icon"
             :data-active="settings.topBarLogoStyle === 'icon'"
+            :tabindex="settings.topBarLogoStyle === 'icon' ? 0 : -1"
             role="radio"
             :aria-checked="settings.topBarLogoStyle === 'icon'"
             :title="$t('settings.top_bar_logo_style_opt.icon')"
@@ -254,6 +292,7 @@ watch(topBarComponents, ensureTopBarComponentsConfig, { immediate: true })
             type="button"
             class="logo-style-picker__brand-option bew-segment-control__item"
             :data-active="settings.topBarLogoStyle === 'brand'"
+            :tabindex="settings.topBarLogoStyle === 'brand' ? 0 : -1"
             role="radio"
             :aria-checked="settings.topBarLogoStyle === 'brand'"
             :title="$t('settings.top_bar_logo_style_opt.brand')"
