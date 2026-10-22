@@ -274,19 +274,22 @@ function focusSettingsPageEntry(attempt = 0) {
   if (!viewport)
     return
 
-  const activeCategoryButton = viewport.querySelector<HTMLElement>('.settings-category-button.active')
+  const isLeavingPageElement = (element: Element) => Boolean(element.closest('.page-fade-leave-active'))
+  const activeCategoryButton = Array.from(viewport.querySelectorAll<HTMLElement>('.settings-category-button.active'))
+    .find(element => !isLeavingPageElement(element))
   if (activeCategoryButton) {
     activeCategoryButton.focus({ preventScroll: true })
     return
   }
 
-  const firstControl = getFocusableElements(viewport)[0]
+  const firstControl = getFocusableElements(viewport)
+    .find(element => !isLeavingPageElement(element))
   if (firstControl) {
     firstControl.focus()
     return
   }
 
-  if (attempt < 3) {
+  if (attempt < 5) {
     requestAnimationFrame(() => focusSettingsPageEntry(attempt + 1))
     return
   }
